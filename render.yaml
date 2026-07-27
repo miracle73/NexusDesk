@@ -1,0 +1,45 @@
+databases:
+  - name: nexusdesk-db
+    plan: free
+    databaseName: nexusdesk
+    user: nexusdesk
+
+services:
+  - type: web
+    name: nexusdesk-api
+    runtime: docker
+    rootDir: backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexusdesk-db
+          property: connectionString
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o-mini
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CHROMA_PERSIST_DIR
+        value: /var/data/chroma
+    disk:
+      name: nexusdesk-chroma
+      mountPath: /var/data
+      sizeGB: 1
+
+  - type: web
+    name: nexusdesk-web
+    runtime: node
+    rootDir: frontend
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.15.1
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
