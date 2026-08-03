@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 type Metrics = { total: number; open: number; resolved: number; escalated: number; resolution_rate: number; knowledge_gaps: string[] };
@@ -20,14 +20,15 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
 
-  useEffect(() => { const saved = localStorage.getItem("nexusdesk_token"); if (saved) setToken(saved); }, []);
-  useEffect(() => { if (token) void refresh(); }, [token, filter]);
-
-  async function refresh() {
-    const [m, c] = await Promise.all([fetch(`${API}/conversations/metrics`, { headers }), fetch(`${API}/conversations${filter ? `?status=${filter}` : ""}`, { headers })]);
+  const refresh = useCallback(async () => {
+    const currentHeaders = { Authorization: `Bearer ${token}` };
+    const [m, c] = await Promise.all([fetch(`${API}/conversations/metrics`, { headers: currentHeaders }), fetch(`${API}/conversations${filter ? `?status=${filter}` : ""}`, { headers: currentHeaders })]);
     if (m.ok) setMetrics(await m.json());
     if (c.ok) setConversations(await c.json());
-  }
+  }, [filter, token]);
+
+  useEffect(() => { const saved = localStorage.getItem("nexusdesk_token"); if (saved) queueMicrotask(() => setToken(saved)); }, []);
+  useEffect(() => { if (token) void refresh(); }, [token, refresh]);
 
   async function authenticate(event: FormEvent) {
     event.preventDefault(); setNotice("");
