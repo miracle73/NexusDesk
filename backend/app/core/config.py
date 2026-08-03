@@ -15,10 +15,13 @@ class Settings(BaseSettings):
 
     openrouter_api_key: str = ""
     openrouter_model: str = "openai/gpt-4o-mini"
+    embedding_model: str = "openai/text-embedding-3-small"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     chroma_persist_dir: str = "./chroma_data"
     cors_origins: str = "http://localhost:3000"
+    demo_email: str = "demo@cipheznexus.com"
+    demo_password: str = "DemoPass123!"
 
     model_config = SettingsConfigDict(
         env_file=".env",

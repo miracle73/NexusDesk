@@ -14,3 +14,13 @@ body {
     #07111f;
   color: #f8fafc;
 }
+
+@layer components {
+  .glass { @apply rounded-2xl border border-white/10 bg-white/[0.055] shadow-2xl backdrop-blur; }
+  .field { @apply w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm outline-none transition focus:border-teal; }
+  .primary { @apply rounded-xl bg-teal px-5 py-3 font-semibold text-ink transition hover:brightness-110; }
+  .status { @apply rounded-full px-2.5 py-1 text-xs capitalize; }
+  .status.open { @apply bg-sky-400/15 text-sky-300; }
+  .status.resolved { @apply bg-emerald-400/15 text-emerald-300; }
+  .status.escalated { @apply bg-amber-400/15 text-amber-300; }
+}
