@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.db.base import Base
+from app.db.session import SessionLocal, engine
+from app.services.seed import seed_demo
 
 app = FastAPI(
     title=settings.app_name,
@@ -19,6 +22,14 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+
+@app.on_event("startup")
+def startup() -> None:
+    if settings.environment == "development":
+        Base.metadata.create_all(engine)
+        with SessionLocal() as db:
+            seed_demo(db)
 
 
 @app.get("/health", tags=["system"])
