@@ -28,6 +28,8 @@ export default function Home() {
   }, [filter, token]);
 
   useEffect(() => { const saved = localStorage.getItem("nexusdesk_token"); if (saved) queueMicrotask(() => setToken(saved)); }, []);
+  // Data is intentionally refreshed when authentication or the status filter changes.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (token) void refresh(); }, [token, refresh]);
 
   async function authenticate(event: FormEvent) {
