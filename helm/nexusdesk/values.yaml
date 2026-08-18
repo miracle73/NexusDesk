@@ -1,0 +1,29 @@
+frontend:
+  image: nexusdesk-frontend:local
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  port: 3000
+
+backend:
+  image: nexusdesk-backend:local
+  imagePullPolicy: IfNotPresent
+  replicas: 1
+  port: 8000
+  chromaStorage: 1Gi
+
+postgres:
+  image: postgres:16-alpine
+  database: nexusdesk
+  username: nexusdesk
+  password: nexusdesk
+  storage: 1Gi
+
+config:
+  environment: development
+  corsOrigins: http://localhost:3000
+  openrouterModel: openai/gpt-4o-mini
+  embeddingModel: openai/text-embedding-3-small
+
+secrets:
+  jwtSecret: local-lab-secret-change-me
+  openrouterApiKey: ""

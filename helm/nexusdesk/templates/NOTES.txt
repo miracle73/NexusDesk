@@ -1,0 +1,6 @@
+Run these in separate terminals:
+
+  kubectl port-forward service/{{ .Release.Name }}-frontend 3000:{{ .Values.frontend.port }}
+  kubectl port-forward service/{{ .Release.Name }}-backend 8000:{{ .Values.backend.port }}
+
+Then open http://localhost:3000 (API docs: http://localhost:8000/docs).
