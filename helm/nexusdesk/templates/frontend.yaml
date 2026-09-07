@@ -35,6 +35,9 @@ spec:
         - name: frontend
           image: {{ .Values.frontend.image | quote }}
           imagePullPolicy: {{ .Values.frontend.imagePullPolicy }}
+          env:
+            - name: HOSTNAME
+              value: "0.0.0.0"
           ports:
             - name: http
               containerPort: {{ .Values.frontend.port }}
