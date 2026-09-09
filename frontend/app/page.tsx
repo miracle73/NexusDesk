@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 type Metrics = { total: number; open: number; resolved: number; escalated: number; resolution_rate: number; knowledge_gaps: string[] };
 type Conversation = { id: string; customer_email?: string; status: string; escalation_reason?: string; updated_at: string };
 
