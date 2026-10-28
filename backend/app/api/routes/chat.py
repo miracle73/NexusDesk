@@ -1,13 +1,9 @@
-import json
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
-from app.api.deps import current_user
-from app.db.session import get_db
-from app.models import Conversation, ConversationStatus, Message, User
+from app.api.deps import Principal, current_user
 from app.services.support_graph import support_graph
+from app.store import repository
 
 router = APIRouter()
 
@@ -18,21 +14,35 @@ class ChatRequest(BaseModel):
     customer_email: str | None = None
 
 
+def conversation_id_of(item: dict) -> str:
+    return item["sk"].split("#", 1)[1]
+
+
 @router.post("")
-def chat(data: ChatRequest, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    conversation = db.get(Conversation, data.conversation_id) if data.conversation_id else None
-    if conversation and conversation.tenant_id != user.tenant_id:
-        raise HTTPException(404, "Conversation not found")
-    if not conversation:
-        conversation = Conversation(tenant_id=user.tenant_id, customer_email=data.customer_email)
-        db.add(conversation)
-        db.flush()
-    db.add(Message(conversation_id=conversation.id, role="user", content=data.message))
+def chat(data: ChatRequest, user: Principal = Depends(current_user)) -> dict:
+    if data.conversation_id:
+        conversation = repository.get_conversation(user.tenant_id, data.conversation_id)
+        if not conversation:
+            raise HTTPException(404, "Conversation not found")
+    else:
+        conversation = repository.create_conversation(user.tenant_id, data.customer_email)
+    conversation_id = conversation_id_of(conversation)
+
+    repository.add_message(conversation_id, "user", data.message)
     result = support_graph.invoke({"tenant_id": user.tenant_id, "question": data.message})
     sources = sorted({item["filename"] for item in result.get("context", [])})
+
+    status = conversation.get("status", repository.OPEN)
+    changes: dict = {"status": status}
     if result["decision"] == "escalate":
-        conversation.status = ConversationStatus.escalated
-        conversation.escalation_reason = result.get("escalation_reason")
-    db.add(Message(conversation_id=conversation.id, role="assistant", content=result["answer"], decision=result["decision"], sources=json.dumps(sources)))
-    db.commit()
-    return {"conversation_id": conversation.id, "answer": result["answer"], "decision": result["decision"], "sources": sources, "status": conversation.status}
+        status = repository.ESCALATED
+        changes = {"status": status, "escalation_reason": result.get("escalation_reason", "")}
+    repository.set_conversation(user.tenant_id, conversation_id, changes)
+    repository.add_message(conversation_id, "assistant", result["answer"], result["decision"], sources)
+    return {
+        "conversation_id": conversation_id,
+        "answer": result["answer"],
+        "decision": result["decision"],
+        "sources": sources,
+        "status": status,
+    }

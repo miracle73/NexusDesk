@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: NexusDesk serverless MVP - Lambda Function URL, DynamoDB, S3. No API Gateway, RDS, EC2, EKS, NAT or load balancers.
+
+Parameters:
+  JwtSecret:
+    Type: String
+    NoEcho: true
+  OpenRouterApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+  OpenRouterModel:
+    Type: String
+    Default: openrouter/free
+  CorsOrigins:
+    Type: String
+    Default: http://localhost:3000
+  ReservedConcurrency:
+    Type: Number
+    Default: 5
+    Description: Hard cap on concurrent Lambda executions, keeps cost bounded.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 512
+    Architectures: [arm64]
+
+Resources:
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-table
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+  Uploads:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-uploads-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-raw-uploads
+            Status: Enabled
+            ExpirationInDays: 365
+
+  Api:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-api
+      CodeUri: ../backend
+      Handler: app.lambda_handler.handler
+      ReservedConcurrentExecutions: !Ref ReservedConcurrency
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins: ["*"]
+          AllowHeaders: ["authorization", "content-type"]
+          AllowMethods: ["GET", "POST", "PATCH", "OPTIONS"]
+      Environment:
+        Variables:
+          ENVIRONMENT: production
+          DYNAMODB_TABLE: !Ref Table
+          UPLOADS_BUCKET: !Ref Uploads
+          JWT_SECRET: !Ref JwtSecret
+          OPENROUTER_API_KEY: !Ref OpenRouterApiKey
+          OPENROUTER_MODEL: !Ref OpenRouterModel
+          CORS_ORIGINS: !Ref CorsOrigins
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - S3CrudPolicy:
+            BucketName: !Sub ${AWS::StackName}-uploads-${AWS::AccountId}
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-api
+      RetentionInDays: 7
+
+Outputs:
+  FunctionUrl:
+    Description: Public HTTPS endpoint for the API
+    Value: !GetAtt ApiUrl.FunctionUrl
+  TableName:
+    Value: !Ref Table
+  UploadsBucket:
+    Value: !Ref Uploads

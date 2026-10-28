@@ -1,13 +1,18 @@
+"""Document parsing, S3 storage, and tenant-isolated embeddings kept in DynamoDB."""
+import base64
 import hashlib
 import io
 import math
+import struct
 from pathlib import Path
 
-import chromadb
 from openai import OpenAI
 from pypdf import PdfReader
 
 from app.core.config import settings
+from app.store import dynamo
+
+VECTOR_SIZE = 256
 
 
 def extract_text(filename: str, data: bytes) -> str:
@@ -34,45 +39,74 @@ def chunks(text: str, size: int = 900, overlap: int = 150) -> list[str]:
     return result
 
 
+def _pack(vector: list[float]) -> str:
+    return base64.b64encode(struct.pack(f"<{len(vector)}f", *vector)).decode()
+
+
+def _unpack(value: str) -> list[float]:
+    raw = base64.b64decode(value)
+    return list(struct.unpack(f"<{len(raw) // 4}f", raw))
+
+
+def _local_vector(text: str) -> list[float]:
+    vector = [0.0] * VECTOR_SIZE
+    for word in text.lower().split():
+        digest = hashlib.sha256(word.encode()).digest()
+        vector[int.from_bytes(digest[:2], "big") % VECTOR_SIZE] += 1
+    norm = math.sqrt(sum(value * value for value in vector)) or 1
+    return [value / norm for value in vector]
+
+
+def embeddings(texts: list[str]) -> list[list[float]]:
+    """Hashing embeddings: no paid embedding endpoint, deterministic and free."""
+    return [_local_vector(text) for text in texts]
+
+
+def upload_to_s3(tenant_id: str, filename: str, data: bytes, content_type: str) -> str | None:
+    if not settings.uploads_bucket:
+        return None
+    key = f"tenants/{tenant_id}/{filename}"
+    dynamo.s3().put_object(Bucket=settings.uploads_bucket, Key=key, Body=data, ContentType=content_type)
+    return key
+
+
 class KnowledgeStore:
-    def __init__(self) -> None:
-        self.client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
+    """Embeddings live under a tenant-prefixed partition key, so no query can cross tenants."""
 
-    def _collection(self, tenant_id: str):
-        return self.client.get_or_create_collection(f"tenant_{tenant_id.replace('-', '_')}", metadata={"hnsw:space": "cosine"})
-
-    def _embeddings(self, texts: list[str]) -> list[list[float]]:
-        if settings.openrouter_api_key:
-            client = OpenAI(api_key=settings.openrouter_api_key, base_url=settings.openrouter_base_url)
-            try:
-                return [item.embedding for item in client.embeddings.create(model=settings.embedding_model, input=texts).data]
-            except Exception:
-                pass
-        # Deterministic local fallback keeps development, tests, and ingestion available offline.
-        vectors = []
-        for text in texts:
-            vector = [0.0] * 256
-            for word in text.lower().split():
-                digest = hashlib.sha256(word.encode()).digest()
-                vector[int.from_bytes(digest[:2], "big") % len(vector)] += 1
-            norm = math.sqrt(sum(value * value for value in vector)) or 1
-            vectors.append([value / norm for value in vector])
-        return vectors
+    @staticmethod
+    def _pk(tenant_id: str) -> str:
+        return f"TENANT#{tenant_id}#VEC"
 
     def add(self, tenant_id: str, document_id: str, filename: str, texts: list[str]) -> None:
-        self._collection(tenant_id).upsert(
-            ids=[f"{document_id}:{i}" for i in range(len(texts))],
-            documents=texts,
-            embeddings=self._embeddings(texts),
-            metadatas=[{"document_id": document_id, "filename": filename, "chunk": i} for i in range(len(texts))],
-        )
+        texts = texts[: settings.max_vector_chunks]
+        for index, (text, vector) in enumerate(zip(texts, embeddings(texts), strict=True)):
+            dynamo.put({
+                "pk": self._pk(tenant_id),
+                "sk": f"{document_id}#{index:04d}",
+                "document_id": document_id,
+                "filename": filename,
+                "text": text,
+                "vector": _pack(vector),
+            })
 
     def search(self, tenant_id: str, query: str, limit: int = 4) -> list[dict]:
-        collection = self._collection(tenant_id)
-        if collection.count() == 0:
+        items = dynamo.query(self._pk(tenant_id), limit=settings.max_vector_chunks)
+        if not items:
             return []
-        result = collection.query(query_embeddings=self._embeddings([query]), n_results=min(limit, collection.count()))
-        return [{"text": text, "filename": meta["filename"], "distance": distance} for text, meta, distance in zip(result["documents"][0], result["metadatas"][0], result["distances"][0])]
+        target = embeddings([query])[0]
+        scored = []
+        for item in items:
+            vector = _unpack(item["vector"])
+            score = sum(a * b for a, b in zip(target, vector, strict=False))
+            scored.append({"text": item["text"], "filename": item["filename"], "distance": 1 - score, "score": score})
+        scored.sort(key=lambda item: item["score"], reverse=True)
+        return [{k: v for k, v in item.items() if k != "score"} for item in scored[:limit] if item["score"] > 0]
 
 
 knowledge = KnowledgeStore()
+
+
+def openrouter_client() -> OpenAI | None:
+    if not settings.openrouter_api_key:
+        return None
+    return OpenAI(api_key=settings.openrouter_api_key, base_url=settings.openrouter_base_url)

@@ -1,10 +1,9 @@
 from typing import TypedDict
 
 from langgraph.graph import END, StateGraph
-from openai import OpenAI
 
 from app.core.config import settings
-from app.services.knowledge import knowledge
+from app.services.knowledge import knowledge, openrouter_client
 
 
 class SupportState(TypedDict, total=False):
@@ -36,9 +35,9 @@ def respond(state: SupportState) -> SupportState:
     if state["decision"] == "clarify":
         return {**state, "answer": "Could you share a little more detail so I can find the right answer?"}
     context = "\n\n".join(f"[{item['filename']}] {item['text']}" for item in state["context"])
-    if not settings.openrouter_api_key:
+    client = openrouter_client()
+    if client is None:
         return {**state, "answer": state["context"][0]["text"]}
-    client = OpenAI(api_key=settings.openrouter_api_key, base_url=settings.openrouter_base_url)
     result = client.chat.completions.create(model=settings.openrouter_model, temperature=0.2, messages=[
         {"role": "system", "content": "You are NexusDesk support. Answer only from the supplied company knowledge. Be concise and do not invent facts."},
         {"role": "user", "content": f"Company knowledge:\n{context}\n\nCustomer question: {state['question']}"},

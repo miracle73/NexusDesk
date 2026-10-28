@@ -8,20 +8,22 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     environment: str = "development"
 
-    database_url: str = "postgresql+psycopg://nexusdesk:nexusdesk@localhost:5432/nexusdesk"
+    aws_region: str = "us-east-1"
+    dynamodb_table: str = "nexusdesk"
+    dynamodb_endpoint_url: str = ""
+    uploads_bucket: str = ""
+
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
 
     openrouter_api_key: str = ""
-    openrouter_model: str = "openai/gpt-4o-mini"
-    embedding_model: str = "openai/text-embedding-3-small"
+    openrouter_model: str = "openrouter/free"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
-    chroma_persist_dir: str = "./chroma_data"
+    max_upload_bytes: int = 5 * 1024 * 1024
+    max_vector_chunks: int = 400
     cors_origins: str = "http://localhost:3000"
-    demo_email: str = "demo@cipheznexus.com"
-    demo_password: str = "DemoPass123!"
 
     model_config = SettingsConfigDict(
         env_file=".env",
