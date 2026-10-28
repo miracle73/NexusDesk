@@ -35,6 +35,8 @@ def chunks(text: str, size: int = 900, overlap: int = 150) -> list[str]:
             split = clean.rfind(" ", start, end)
             end = split if split > start + size // 2 else end
         result.append(clean[start:end])
+        if end >= len(clean):
+            break
         start = max(end - overlap, start + 1)
     return result
 

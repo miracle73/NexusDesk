@@ -36,7 +36,8 @@ python -m pip install \
 # Trim what Lambda never needs; the unzipped package must stay under 250 MB.
 find "$BUILD" -name '__pycache__' -type d -prune -exec rm -rf {} +
 find "$BUILD" -name '*.pyc' -delete
-find "$BUILD" -type d \( -name 'tests' -o -name 'test' -o -name '*.dist-info' \) -prune -exec rm -rf {} +
+# Keep *.dist-info: pydantic resolves email-validator through package metadata at import.
+find "$BUILD" -type d \( -name 'tests' -o -name 'test' \) -prune -exec rm -rf {} +
 echo "    unzipped: $(du -sh "$BUILD" | cut -f1)"
 
 rm -f "$ROOT/.aws-sam/api.zip"
@@ -57,16 +58,19 @@ fi
 echo "==> Ensuring artifact bucket $ARTIFACTS"
 aws s3api head-bucket --bucket "$ARTIFACTS" 2>/dev/null || \
   aws s3 mb "s3://$ARTIFACTS" --region "$REGION" >/dev/null
-aws s3 cp "$ROOT/.aws-sam/api.zip" "s3://$ARTIFACTS/api.zip" --region "$REGION" >/dev/null
+# Content-addressed key: an unchanged key would leave CloudFormation with nothing to update.
+KEY="api-$(python -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()[:12])' "$ROOT/.aws-sam/api.zip").zip"
+aws s3 cp "$ROOT/.aws-sam/api.zip" "s3://$ARTIFACTS/$KEY" --region "$REGION" >/dev/null
+echo "    key: $KEY"
 
 echo "==> Deploying stack $STACK"
-python - "$ROOT/infra/template.yaml" "$ROOT/.aws-sam/packaged.yaml" "$ARTIFACTS" <<'PY'
+python - "$ROOT/infra/template.yaml" "$ROOT/.aws-sam/packaged.yaml" "$ARTIFACTS" "$KEY" <<'PY'
 import sys
-source, target, bucket = sys.argv[1:4]
+source, target, bucket, key = sys.argv[1:5]
 text = open(source, encoding="utf-8").read()
 text = text.replace(
     "      CodeUri: ../backend\n",
-    f"      CodeUri:\n        Bucket: {bucket}\n        Key: api.zip\n",
+    f"      CodeUri:\n        Bucket: {bucket}\n        Key: {key}\n",
 )
 open(target, "w", encoding="utf-8").write(text)
 PY

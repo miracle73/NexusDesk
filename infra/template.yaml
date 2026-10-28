@@ -104,13 +104,12 @@ Resources:
           OPENROUTER_MODEL: !Ref OpenRouterModel
           CORS_ORIGINS: !Ref CorsOrigins
       Role: !If [HasExecutionRole, !Ref ExecutionRoleArn, !Ref "AWS::NoValue"]
-      Policies: !If
-        - HasExecutionRole
-        - !Ref "AWS::NoValue"
-        - - DynamoDBCrudPolicy:
-              TableName: !Ref Table
-          - S3CrudPolicy:
-              BucketName: !Sub ${AWS::StackName}-uploads-${AWS::AccountId}
+      # SAM ignores Policies when Role is supplied; it cannot resolve an Fn::If here.
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - S3CrudPolicy:
+            BucketName: !Sub ${AWS::StackName}-uploads-${AWS::AccountId}
 
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
