@@ -63,6 +63,12 @@ npm run dev
 sam deploy --template infra/template.yaml --stack-name nexusdesk --resolve-s3 --capabilities CAPABILITY_IAM --parameter-overrides JwtSecret=<generated-secret> OpenRouterApiKey=<key> CorsOrigins=https://<frontend-domain>
 ```
 
+`infra/deploy.sh` is the no-SAM-CLI path: it cross-builds an arm64 package, uploads it, and deploys with plain CloudFormation.
+
+The deploying principal needs CloudFormation, Lambda, DynamoDB, S3, Logs and `iam:CreateRole`/`PassRole`. Where it may not create roles, create the execution role once by hand and pass `EXECUTION_ROLE_ARN=<arn>` (stack parameter `ExecutionRoleArn`); the stack then attaches no policies of its own.
+
+`ReservedConcurrency` defaults to `-1`, meaning no reservation: AWS rejects one unless 100 unreserved executions remain, so on a default account (limit 10) that limit is itself the cap.
+
 The stack creates the DynamoDB table, the uploads bucket and the Lambda Function URL, caps the function with `ReservedConcurrentExecutions` (default 5), and keeps CloudWatch log retention at 7 days. The `FunctionUrl` output is the API base; use `<FunctionUrl>api/v1` as `NEXT_PUBLIC_API_URL`.
 
 ## Deploy the frontend

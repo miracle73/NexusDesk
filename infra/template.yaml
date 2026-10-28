@@ -18,8 +18,25 @@ Parameters:
     Default: http://localhost:3000
   ReservedConcurrency:
     Type: Number
-    Default: 5
-    Description: Hard cap on concurrent Lambda executions, keeps cost bounded.
+    Default: -1
+    Description: >-
+      Hard cap on concurrent Lambda executions. Leave at -1 to apply no reservation:
+      AWS rejects a reservation unless at least 100 unreserved executions remain, so a
+      reservation only works on accounts whose concurrency limit has been raised. On a
+      default account the limit itself (10) is the cap.
+
+  ExecutionRoleArn:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional existing Lambda execution role. Leave empty to let the stack create one,
+      which needs iam:CreateRole. Supply an ARN when the deploying principal may not
+      create roles; the role must allow DynamoDB access on the table and read/write on
+      the uploads bucket, plus basic Lambda logging.
+
+Conditions:
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, -1]]
+  HasExecutionRole: !Not [!Equals [!Ref ExecutionRoleArn, ""]]
 
 Globals:
   Function:
@@ -70,13 +87,13 @@ Resources:
       FunctionName: !Sub ${AWS::StackName}-api
       CodeUri: ../backend
       Handler: app.lambda_handler.handler
-      ReservedConcurrentExecutions: !Ref ReservedConcurrency
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref "AWS::NoValue"]
       FunctionUrlConfig:
         AuthType: NONE
         Cors:
           AllowOrigins: ["*"]
           AllowHeaders: ["authorization", "content-type"]
-          AllowMethods: ["GET", "POST", "PATCH", "OPTIONS"]
+          AllowMethods: ["GET", "POST", "PATCH"]
       Environment:
         Variables:
           ENVIRONMENT: production
@@ -86,11 +103,14 @@ Resources:
           OPENROUTER_API_KEY: !Ref OpenRouterApiKey
           OPENROUTER_MODEL: !Ref OpenRouterModel
           CORS_ORIGINS: !Ref CorsOrigins
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref Table
-        - S3CrudPolicy:
-            BucketName: !Sub ${AWS::StackName}-uploads-${AWS::AccountId}
+      Role: !If [HasExecutionRole, !Ref ExecutionRoleArn, !Ref "AWS::NoValue"]
+      Policies: !If
+        - HasExecutionRole
+        - !Ref "AWS::NoValue"
+        - - DynamoDBCrudPolicy:
+              TableName: !Ref Table
+          - S3CrudPolicy:
+              BucketName: !Sub ${AWS::StackName}-uploads-${AWS::AccountId}
 
   ApiLogGroup:
     Type: AWS::Logs::LogGroup

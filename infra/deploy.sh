@@ -19,6 +19,9 @@ ARTIFACTS="${ARTIFACT_BUCKET:-$STACK-artifacts-$ACCOUNT}"
 
 : "${JWT_SECRET:?set JWT_SECRET to a generated secret}"
 
+if [ -n "${SKIP_BUILD:-}" ] && [ -f "$ROOT/.aws-sam/api.zip" ]; then
+  echo "==> Reusing existing package (SKIP_BUILD set)"
+else
 echo "==> Building arm64 package"
 rm -rf "$BUILD" && mkdir -p "$BUILD"
 cp -r "$ROOT/backend/app" "$BUILD/app"
@@ -37,7 +40,19 @@ find "$BUILD" -type d \( -name 'tests' -o -name 'test' -o -name '*.dist-info' \)
 echo "    unzipped: $(du -sh "$BUILD" | cut -f1)"
 
 rm -f "$ROOT/.aws-sam/api.zip"
-(cd "$BUILD" && zip -qr "$ROOT/.aws-sam/api.zip" .)
+python - "$BUILD" "$ROOT/.aws-sam/api.zip" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+source, target = (pathlib.Path(value) for value in sys.argv[1:3])
+with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+    for path in sorted(source.rglob("*")):
+        if path.is_file():
+            archive.write(path, path.relative_to(source).as_posix())
+print(f"    zipped: {target.stat().st_size // (1024 * 1024)} MB")
+PY
+fi
 
 echo "==> Ensuring artifact bucket $ARTIFACTS"
 aws s3api head-bucket --bucket "$ARTIFACTS" 2>/dev/null || \
@@ -65,7 +80,8 @@ aws cloudformation deploy \
   --parameter-overrides \
     "JwtSecret=$JWT_SECRET" \
     "OpenRouterApiKey=${OPENROUTER_API_KEY:-}" \
-    "CorsOrigins=${CORS_ORIGINS:-http://localhost:3000}"
+    "CorsOrigins=${CORS_ORIGINS:-http://localhost:3000}" \
+    "ExecutionRoleArn=${EXECUTION_ROLE_ARN:-}"
 
 URL=$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
   --query "Stacks[0].Outputs[?OutputKey=='FunctionUrl'].OutputValue" --output text)
